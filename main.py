@@ -21,15 +21,14 @@ class PrintsMessages(BasicActor):
         self.forward = forward
         super().__init__(name)
 
-    async def handle_message(self, message):
+    def handle_message(self, message):
         print(message)
         if len(message) > 100:
             message = "TRUNCATED"
-        await asyncio.sleep(1)
         if self.forward:
             self.send_message(self.forward, message + " & " + self.msg_content)
 
-    async def started_event(self):
+    def started_event(self):
         print(f"started {self._name}")
 
 

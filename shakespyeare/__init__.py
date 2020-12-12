@@ -4,6 +4,8 @@ import uuid
 from abc import ABC, abstractmethod
 from asyncio import get_running_loop, AbstractEventLoop
 from collections import defaultdict
+from concurrent.futures.thread import ThreadPoolExecutor
+from threading import Lock
 from typing import Dict, List, Any, Optional
 from typing_extensions import Protocol
 
@@ -11,9 +13,9 @@ logger = logging.getLogger(__name__)
 
 
 class Actor(Protocol):
-    async def start(self, assigned_id: uuid.UUID): ...
+    def start(self, assigned_id: uuid.UUID): ...
 
-    async def handle_message(self, message): ...
+    def handle_message(self, message): ...
 
     def empty_mailbox(self) -> List: ...
 
@@ -23,18 +25,22 @@ class Actor(Protocol):
 
 class Stage:
     _actors: Dict[uuid.UUID, Actor]
+    _actor_locks: Dict[uuid.UUID, Lock]
     _mailboxes: Dict[uuid.UUID, List[Any]]
     _mailbox_semaphore: asyncio.Semaphore
     _friendly_names: Dict[str, uuid.UUID]
+    _executor: ThreadPoolExecutor
 
     def __init__(self):
         self._actors = {}
+        self._actor_locks = defaultdict(Lock)
         self._mailboxes = defaultdict(list)
         self._friendly_names = {}
         self._mailbox_semaphore = asyncio.Semaphore(1)
         self.loop = get_running_loop()
         self.loop.create_task(self._dispatch_messages(self.loop))
         self.loop.create_task(self._collect_messages(self.loop))
+        self._executor = ThreadPoolExecutor(max_workers=10)
 
     async def _dispatch_messages(self, loop: AbstractEventLoop):
         while loop.is_running():
@@ -42,8 +48,11 @@ class Stage:
                 for actor_id, box in self._mailboxes.items():
                     if len(box) > 0:
                         message = box.pop(0)
-                        self.loop.create_task(
-                            self._dispatch_single_message(actor_id, message),
+                        self._executor.submit(
+                            self._dispatch_single_message,
+                            actor_id,
+                            message,
+                            self._actor_locks[actor_id]
                         )
             await asyncio.sleep(0)
 
@@ -56,9 +65,10 @@ class Stage:
                     )
             await asyncio.sleep(0)
 
-    async def _dispatch_single_message(self, actor_id, message):
+    def _dispatch_single_message(self, actor_id, message, lock: Lock):
         try:
-            await self._actors[actor_id].handle_message(message)
+            with lock:
+                self._actors[actor_id].handle_message(message)
         except Exception as e:
             logger.warning("Failed dispatching message", exc_info=e)
 
@@ -67,7 +77,10 @@ class Stage:
         self._actors[new_id] = actor
         if hasattr(actor, "name") and actor.name:
             self._friendly_names[actor.name] = new_id
-        self.loop.create_task(actor.start(new_id))
+        self.loop.create_task(self._start_actor(new_id))
+
+    async def _start_actor(self, actor_id):
+        self._actors[actor_id].start(actor_id)
 
     async def send_message(self, to, message):
         if hasattr(to, "id"):
@@ -94,9 +107,9 @@ class BasicActor(ABC):
         self.__id = None
         self._name = name
 
-    async def start(self, assigned_id: uuid.UUID):
+    def start(self, assigned_id: uuid.UUID):
         self.__id = assigned_id
-        await self.started_event()
+        self.started_event()
 
     @property
     def name(self):
@@ -121,9 +134,9 @@ class BasicActor(ABC):
         return msgs
 
     @abstractmethod
-    async def started_event(self):
+    def started_event(self):
         pass
 
     @abstractmethod
-    async def handle_message(self, message):
+    def handle_message(self, message):
         pass
