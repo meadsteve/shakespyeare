@@ -4,6 +4,7 @@ import uuid
 from abc import ABC, abstractmethod
 from asyncio import get_running_loop, AbstractEventLoop
 from collections import defaultdict
+from concurrent.futures._base import Executor
 from concurrent.futures.thread import ThreadPoolExecutor
 from threading import Lock
 from typing import Dict, List, Any, Optional
@@ -29,9 +30,9 @@ class Stage:
     _mailboxes: Dict[uuid.UUID, List[Any]]
     _mailbox_semaphore: asyncio.Semaphore
     _friendly_names: Dict[str, uuid.UUID]
-    _executor: ThreadPoolExecutor
+    _executor: Executor
 
-    def __init__(self):
+    def __init__(self, executor: Executor = None):
         self._actors = {}
         self._actor_locks = defaultdict(Lock)
         self._mailboxes = defaultdict(list)
@@ -40,7 +41,7 @@ class Stage:
         self.loop = get_running_loop()
         self.loop.create_task(self._dispatch_messages(self.loop))
         self.loop.create_task(self._collect_messages(self.loop))
-        self._executor = ThreadPoolExecutor(max_workers=10)
+        self._executor = executor or ThreadPoolExecutor()
 
     async def _dispatch_messages(self, loop: AbstractEventLoop):
         while loop.is_running():
@@ -59,10 +60,11 @@ class Stage:
     async def _collect_messages(self, loop: AbstractEventLoop):
         while loop.is_running():
             for actor_id, actor in self._actors.items():
-                for (to, msg) in actor.empty_mailbox():
-                    self.loop.create_task(
-                        self.send_message(to, msg)
-                    )
+                with self._actor_locks[actor_id]:
+                    for (to, msg) in actor.empty_mailbox():
+                        self.loop.create_task(
+                            self.send_message(to, msg)
+                        )
             await asyncio.sleep(0)
 
     def _dispatch_single_message(self, actor_id, message, lock: Lock):
