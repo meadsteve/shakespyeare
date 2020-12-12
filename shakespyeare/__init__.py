@@ -61,10 +61,11 @@ class Stage:
         while loop.is_running():
             for actor_id, actor in self._actors.items():
                 with self._actor_locks[actor_id]:
-                    for (to, msg) in actor.empty_mailbox():
-                        self.loop.create_task(
-                            self.send_message(to, msg)
-                        )
+                    new_messages = actor.empty_mailbox()
+                for (to, msg) in new_messages:
+                    self.loop.create_task(
+                        self.send_message(to, msg)
+                    )
             await asyncio.sleep(0)
 
     def _dispatch_single_message(self, actor_id, message, lock: Lock):
