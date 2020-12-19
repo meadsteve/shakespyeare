@@ -1,5 +1,6 @@
 import asyncio
 from asyncio import get_running_loop
+from time import sleep
 
 from shakespyeare import BasicActor, Stage
 
@@ -10,7 +11,7 @@ async def main():
     simple_actor_2 = PrintsMessages("hello from two", name="two", forward="one")
     stage.add_actor(simple_actor)
     stage.add_actor(simple_actor_2)
-    await stage.send_message("one", "hello")
+    stage.send_message("one", "hello")
     while get_running_loop().is_running():
         await asyncio.sleep(10)
 
@@ -21,15 +22,14 @@ class PrintsMessages(BasicActor):
         self.forward = forward
         super().__init__(name)
 
-    def handle_message(self, message):
+    def handle_message(self, message, sent_from, state):
+        sleep(1)
         print(message)
         if len(message) > 100:
             message = "TRUNCATED"
         if self.forward:
             self.send_message(self.forward, message + " & " + self.msg_content)
-
-    def started_event(self):
-        print(f"started {self._name}")
+        return state
 
 
 if __name__ == '__main__':
