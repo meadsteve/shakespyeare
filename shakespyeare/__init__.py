@@ -113,7 +113,6 @@ class BasicActor(ABC):
     async def _do_loop(self, loop: AbstractEventLoop):
         while loop.is_running():
             try:
-                print("Working...")
                 sent_from, message = self.in_queue.get(timeout=0.1)
                 loop.create_task(self._handle_message(message, sent_from, self._state))
             except Empty:
