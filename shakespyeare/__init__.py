@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from asyncio import get_running_loop, AbstractEventLoop
 from concurrent.futures._base import Executor
 from concurrent.futures.thread import ThreadPoolExecutor
+from multiprocessing import Value
 from multiprocessing.context import Process, SpawnContext
 from multiprocessing.queues import Queue
 from queue import Empty
@@ -19,7 +20,7 @@ class Actor(Protocol):
     name: Optional[str]
     in_queue: Queue
     out_queue: Queue
-    alive: bool
+    alive: Value
     async def runner(self): ...
 
 
@@ -53,7 +54,7 @@ class Stage:
 
     async def _dispatch_messages(self, loop: AbstractEventLoop):
         while loop.is_running():
-            actors = {actor_id: actor for actor_id, actor in self._actors.items() if actor.alive}
+            actors = {actor_id: actor for actor_id, actor in self._actors.items() if actor.alive.value}
             for actor_id, actor in actors.items():
                 self._fetch_single_message(actor_id, actor.out_queue)
             self._actors = actors
@@ -94,33 +95,35 @@ class BasicActor(ABC):
     name: Optional[str]
     in_queue: Queue
     out_queue: Queue
-    alive: bool = True
+    alive: Value
 
     def __init__(self, name=None):
         self.name = name
         self._state = {}
         ctx = SpawnContext()
+        self.alive = Value('b', True)
         self.in_queue = Queue(ctx=ctx)
         self.out_queue = Queue(ctx=ctx)
 
     async def runner(self):
         loop = get_running_loop()
-        try:
-            while loop.is_running():
-                try:
-                    sent_from, message = self.in_queue.get(timeout=0.1)
-                    loop.create_task(self._handle_message(message, sent_from, self._state))
-                except Empty:
-                    pass
-                await asyncio.sleep(0.1)
-        except:
-            self.alive = False
+        while loop.is_running():
+            try:
+                sent_from, message = self.in_queue.get(timeout=0.1)
+                loop.create_task(self._handle_message(message, sent_from, self._state))
+            except Empty:
+                pass
+            await asyncio.sleep(0)
 
     def send_message(self, to, message):
         self.out_queue.put((to, message))
 
     async def _handle_message(self, message, sent_from, state):
-        self._state = await self.handle_message(message, sent_from, state)
+        try:
+            self._state = await self.handle_message(message, sent_from, state)
+        except:
+            self.alive.value = False
+            raise
 
     @abstractmethod
     async def handle_message(self, message, sent_from, state) -> Any:

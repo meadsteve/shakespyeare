@@ -1,6 +1,6 @@
 import asyncio
 from asyncio import get_running_loop
-from time import sleep
+from random import random
 
 from shakespyeare import BasicActor, Stage
 
@@ -28,6 +28,8 @@ class PrintsMessages(BasicActor):
             message = "TRUNCATED"
         if self.forward:
             self.send_message(self.forward, message + " & " + self.msg_content)
+        if random() > 0.9:
+            raise Exception("oh no!")
         return state
 
 
