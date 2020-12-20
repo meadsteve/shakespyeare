@@ -100,7 +100,7 @@ class BasicActor(ABC):
 
     def __init__(self, name=None):
         self.name = name
-        self._state = {}
+        self._state = None
         ctx = SpawnContext()
         self.alive = Value('b', True)
         self.in_queue = Queue(ctx=ctx)
@@ -108,6 +108,7 @@ class BasicActor(ABC):
 
     async def runner(self):
         loop = get_running_loop()
+        self._state = await self.handle_started()
         self._loop_task = loop.create_task(self._do_loop(loop))
 
     async def _do_loop(self, loop: AbstractEventLoop):
@@ -133,4 +134,8 @@ class BasicActor(ABC):
 
     @abstractmethod
     async def handle_message(self, message, sent_from, state) -> Any:
+        pass
+
+    @abstractmethod
+    async def handle_started(self) -> Any:
         pass

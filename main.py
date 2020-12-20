@@ -21,6 +21,10 @@ class PrintsMessages(BasicActor):
         self.forward = forward
         super().__init__(name)
 
+    async def handle_started(self):
+        print(f"worker {self.name} started")
+        return {}
+
     async def handle_message(self, message, sent_from, state):
         await asyncio.sleep(1)
         print(message)
@@ -28,8 +32,6 @@ class PrintsMessages(BasicActor):
             message = "TRUNCATED"
         if self.forward:
             self.send_message(self.forward, message + " & " + self.msg_content)
-        if random() > 0.9:
-            raise Exception("oh no!")
         return state
 
 
