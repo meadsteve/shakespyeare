@@ -1,15 +1,17 @@
 import asyncio
 from asyncio import get_running_loop
-from random import random
 
 from shakespyeare import BasicActor, Stage
 
 
 async def main():
     stage = Stage()
-    simple_actor = PrintsMessages("hello from one", name="one", forward="two")
-    simple_actor_2 = PrintsMessages("hello from two", name="two", forward="one")
+    simple_actor = PrintsMessages("+1", name="one", forward="two")
+    simple_actor_2 = PrintsMessages("+2", name="two", forward="three")
+    simple_actor_3 = PrintsMessages("+3", name="three", forward="four")
+    simple_actor_4 = PrintsMessages("+4", name="four", forward="one")
     stage.add_actors(simple_actor, simple_actor_2)
+    stage.add_actors(simple_actor_3, simple_actor_4)
     stage.send_message("one", "hello")
     while get_running_loop().is_running():
         await asyncio.sleep(10)
@@ -26,7 +28,6 @@ class PrintsMessages(BasicActor):
         return {}
 
     async def handle_message(self, message, sent_from, state):
-        await asyncio.sleep(1)
         print(message)
         if len(message) > 100:
             message = "TRUNCATED"

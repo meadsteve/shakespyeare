@@ -74,7 +74,12 @@ class Stage:
         else:
             logger.warning(f"Invalid message address: {to}")
             return
-        self._actors[receiver_id].in_queue.put((from_id, message))
+
+        inbox = self._actors[receiver_id].in_queue
+        if inbox.qsize() > 100:
+            logger.warning("Shedding excess inbound message")
+            return
+        inbox.put((from_id, message))
 
     def add_actors(self, *actors: Actor):
         for actor in actors:
@@ -100,8 +105,8 @@ class BasicActor(ABC):
         self._state = None
         ctx = SpawnContext()
         self.alive = Value('b', True)
-        self.in_queue = Queue(ctx=ctx)
-        self.out_queue = Queue(ctx=ctx)
+        self.in_queue = Queue(ctx=ctx, maxsize=120)
+        self.out_queue = Queue(ctx=ctx, maxsize=110)
 
     async def runner(self):
         loop = get_running_loop()
@@ -118,6 +123,9 @@ class BasicActor(ABC):
             await asyncio.sleep(0)
 
     def send_message(self, to, message):
+        if self.out_queue.qsize() > 100:
+            logger.warning("Shedding excess outgoing message")
+            return
         self.out_queue.put((to, message))
 
     async def _handle_message(self, message, sent_from, state):
