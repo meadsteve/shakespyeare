@@ -9,8 +9,7 @@ async def main():
     stage = Stage()
     simple_actor = PrintsMessages("hello from one", name="one", forward="two")
     simple_actor_2 = PrintsMessages("hello from two", name="two", forward="one")
-    stage.add_actor(simple_actor)
-    stage.add_actor(simple_actor_2)
+    stage.add_actors(simple_actor, simple_actor_2)
     stage.send_message("one", "hello")
     while get_running_loop().is_running():
         await asyncio.sleep(10)
@@ -22,7 +21,7 @@ class PrintsMessages(BasicActor):
         self.forward = forward
         super().__init__(name)
 
-    def handle_message(self, message, sent_from, state):
+    async def handle_message(self, message, sent_from, state):
         sleep(1)
         print(message)
         if len(message) > 100:

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import random
 import uuid
 from abc import ABC, abstractmethod
 from asyncio import get_running_loop, AbstractEventLoop
@@ -8,7 +9,7 @@ from concurrent.futures.thread import ThreadPoolExecutor
 from multiprocessing.context import Process, SpawnContext
 from multiprocessing.queues import Queue
 from queue import Empty
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List, Iterable
 from typing_extensions import Protocol
 
 logger = logging.getLogger(__name__)
@@ -19,16 +20,36 @@ class Actor(Protocol):
     in_queue: Queue
     out_queue: Queue
     alive: bool
+    async def runner(self): ...
+
+
+class ActorRunner:
+    def __init__(self, actors: Iterable[Actor]):
+        self._process = Process(target=self._run, args=(actors,))
+        self._process.start()
+
+    def _run(self, actors: Iterable[Actor]):
+        asyncio.run(self._loop(actors))
+
+    async def _loop(self, actors: Iterable[Actor]):
+        loop = get_running_loop()
+        for actor in actors:
+            loop.create_task(actor.runner())
+        while loop.is_running():
+            await asyncio.sleep(1)
+
 
 class Stage:
     _actors: Dict[uuid.UUID, Actor]
     _friendly_names: Dict[str, uuid.UUID]
+    _runners: List[ActorRunner]
 
     def __init__(self):
         self._actors = {}
         self._friendly_names = {}
         self.loop = get_running_loop()
         self.loop.create_task(self._dispatch_messages(self.loop))
+        self._runners = []
 
     async def _dispatch_messages(self, loop: AbstractEventLoop):
         while loop.is_running():
@@ -57,11 +78,13 @@ class Stage:
             return
         self._actors[receiver_id].in_queue.put((from_id, message))
 
-    def add_actor(self, actor: Actor):
-        new_id = uuid.uuid4()
-        self._actors[new_id] = actor
-        if hasattr(actor, "name") and actor.name:
-            self._friendly_names[actor.name] = new_id
+    def add_actors(self, *actors: Actor):
+        for actor in actors:
+            new_id = uuid.uuid4()
+            self._actors[new_id] = actor
+            if hasattr(actor, "name") and actor.name:
+                self._friendly_names[actor.name] = new_id
+        self._runners.append(ActorRunner(actors))
 
     def send_message(self, to, message):
         self._dispatch_single_message(to, None, message)
@@ -71,6 +94,7 @@ class BasicActor(ABC):
     name: Optional[str]
     in_queue: Queue
     out_queue: Queue
+    alive: bool = True
 
     def __init__(self, name=None):
         self.name = name
@@ -78,24 +102,26 @@ class BasicActor(ABC):
         ctx = SpawnContext()
         self.in_queue = Queue(ctx=ctx)
         self.out_queue = Queue(ctx=ctx)
-        self._process = Process(target=self._run)
-        self._process.start()
 
-    def _run(self):
-        while True:
-            try:
-                sent_from, message = self.in_queue.get(timeout=0.1)
-                self._state = self.handle_message(message, sent_from, self._state)
-            except Empty:
-                pass
+    async def runner(self):
+        loop = get_running_loop()
+        try:
+            while loop.is_running():
+                try:
+                    sent_from, message = self.in_queue.get(timeout=0.1)
+                    loop.create_task(self._handle_message(message, sent_from, self._state))
+                except Empty:
+                    pass
+                await asyncio.sleep(0.1)
+        except:
+            self.alive = False
 
     def send_message(self, to, message):
         self.out_queue.put((to, message))
 
-    @abstractmethod
-    def handle_message(self, message, sent_from, state) -> Any:
-        pass
+    async def _handle_message(self, message, sent_from, state):
+        self._state = await self.handle_message(message, sent_from, state)
 
-    @property
-    def alive(self) -> bool:
-        return self._process.exitcode is None
+    @abstractmethod
+    async def handle_message(self, message, sent_from, state) -> Any:
+        pass
