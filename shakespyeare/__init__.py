@@ -127,10 +127,13 @@ class BasicActor(ABC):
         try:
             self._state = await self.handle_message(message, sent_from, state)
         except:
-            self.alive.value = False
-            if self._loop_task:
-                self._loop_task.cancel()
+            self.stop()
             raise
+
+    def stop(self):
+        self.alive.value = False
+        if self._loop_task:
+            self._loop_task.cancel()
 
     @abstractmethod
     async def handle_message(self, message, sent_from, state) -> Any:
