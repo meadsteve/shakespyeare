@@ -22,7 +22,7 @@ class PrintsMessages(BasicActor):
         super().__init__(name)
 
     async def handle_message(self, message, sent_from, state):
-        sleep(1)
+        await asyncio.sleep(1)
         print(message)
         if len(message) > 100:
             message = "TRUNCATED"
