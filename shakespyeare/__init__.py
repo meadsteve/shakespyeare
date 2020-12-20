@@ -3,7 +3,7 @@ import logging
 import random
 import uuid
 from abc import ABC, abstractmethod
-from asyncio import get_running_loop, AbstractEventLoop
+from asyncio import get_running_loop, AbstractEventLoop, Task
 from concurrent.futures._base import Executor
 from concurrent.futures.thread import ThreadPoolExecutor
 from multiprocessing import Value
@@ -96,6 +96,7 @@ class BasicActor(ABC):
     in_queue: Queue
     out_queue: Queue
     alive: Value
+    _loop_task: Optional[Task]
 
     def __init__(self, name=None):
         self.name = name
@@ -107,8 +108,12 @@ class BasicActor(ABC):
 
     async def runner(self):
         loop = get_running_loop()
+        self._loop_task = loop.create_task(self._do_loop(loop))
+
+    async def _do_loop(self, loop: AbstractEventLoop):
         while loop.is_running():
             try:
+                print("Working...")
                 sent_from, message = self.in_queue.get(timeout=0.1)
                 loop.create_task(self._handle_message(message, sent_from, self._state))
             except Empty:
@@ -123,6 +128,8 @@ class BasicActor(ABC):
             self._state = await self.handle_message(message, sent_from, state)
         except:
             self.alive.value = False
+            if self._loop_task:
+                self._loop_task.cancel()
             raise
 
     @abstractmethod
